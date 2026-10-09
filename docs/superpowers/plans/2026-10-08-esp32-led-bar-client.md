@@ -13,7 +13,11 @@
 ## Global Constraints
 
 - Target firmware version **1.7.0** (from 1.6.1) in `version.h`.
-- Maximum LED count is **17**. Default 8. Valid range 1–17 inclusive.
+- `LED_SRC_COUNT` is **17** (the Valve LED bar's pixel count, fixed by hardware).
+  `LED_MAX_COUNT` is **24** (maximum supported strip length). Default `ledCount` 8.
+  Valid range 1–24 inclusive. **Amended 2026-10-09**: originally capped at 17; the
+  user's strip has 24 LEDs and the bridge cannot send more than 17, so the firmware
+  upsamples. See Task 7B.
 - UDP listen port is **21324**. DRGB protocol id is **2**. No other WLED protocol mode is supported.
 - `maxBrightness` **scales proportionally** (`value * maxBrightness / 255`), never caps per channel. Default 200. Valid range 1–255.
 - LED data pin is **GPIO 18** (`LED_DATA_PIN` in `pins.h`). Pins 16, 2, 23, 22, 4, 17 are already taken.
@@ -1515,6 +1519,20 @@ git commit -m "feat: add LED bar config API and WLED power-control shim"
 
 ---
 
+### Task 7B: Upsample 17 source pixels to a 24-LED strip
+
+**Added mid-execution on 2026-10-09**, after the user reported their physical strip has 24 LEDs. The full task text lives in the execution workspace at `.superpowers/sdd/2026-10-08-esp32-led-bar-client/task-7b-brief.md` and is summarised here so the plan remains the authority.
+
+The Valve LED bar has exactly 17 pixels and nothing upstream upsamples: the bridge's `remap_snapshot()` only downsamples, and its `extract_pixels()` would index past the end of the 100-byte snapshot at `i = 17`, raising `IndexError`. So `num_leds = 24` crashes the bridge rather than working. The host must stay at 17 and the stretch has to happen in our firmware.
+
+Changes: `LED_SRC_COUNT` (17) is split from `LED_MAX_COUNT` (now 24); `DRGB_MAX_PACKET` becomes 74 so a 24-LED packet from HyperHDR or Hyperion is accepted rather than dropped; a new pure `upsamplePixels()` in `led_protocol.h` stretches the received pixels with 8.8 fixed-point linear interpolation, preserving both endpoints exactly; `handle()` applies it when the frame carries fewer pixels than the configured strip length; the API's error messages move from 1-17 to 1-24.
+
+Defaults stay at `ledCount` 8 and `maxBrightness` 200 deliberately — 24 LEDs at full white draws roughly 1.4 A, beyond the dev board regulator, so first boot stays conservative and the user sets 24 once in the web UI.
+
+Idle animations need no change: they already render through `writeAll()` over `config.ledCount`.
+
+---
+
 ### Task 8: Web UI card and the test pattern
 
 **Files:**
@@ -1558,6 +1576,8 @@ The test pattern goes through `writeAll`, so `maxBrightness` still clamps it —
 
 - [ ] **Step 2: Add the UI card**
 
+(The LED-count field's `max` is **24** per Task 7B, not 17.)
+
 In `data/setup.html`, following the existing PS5 configuration card and matching its markup and class names:
 
 ```html
@@ -1572,7 +1592,7 @@ In `data/setup.html`, following the existing PS5 configuration card and matching
   <label><input type="checkbox" id="ledEnabled"> Enable LED bar</label>
 
   <label>LED count
-    <input type="number" id="ledCount" min="1" max="17" step="1">
+    <input type="number" id="ledCount" min="1" max="24" step="1">
   </label>
 
   <label>Max brightness
