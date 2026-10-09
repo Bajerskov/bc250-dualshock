@@ -85,4 +85,62 @@ inline DrgbFrame parseDrgb(const uint8_t* buf, size_t len, uint8_t maxLeds) {
     return f;
 }
 
+// Permute a colour so a strip whose true channel order is `order` displays it
+// correctly through a bus compiled as NeoGrbFeature.
+//
+// The GRB bus emits wire bytes in the order (g, r, b) from SetPixelColor(r,g,b).
+// So: build the wire triple the strip expects, then invert that emission.
+inline Rgb applyColorOrder(Rgb c, ColorOrder order) {
+    uint8_t w0, w1, w2;             // the bytes we want on the wire, in order
+    switch (order) {
+        case ORDER_RGB: w0 = c.r; w1 = c.g; w2 = c.b; break;
+        case ORDER_BRG: w0 = c.b; w1 = c.r; w2 = c.g; break;
+        case ORDER_RBG: w0 = c.r; w1 = c.b; w2 = c.g; break;
+        case ORDER_GBR: w0 = c.g; w1 = c.b; w2 = c.r; break;
+        case ORDER_BGR: w0 = c.b; w1 = c.g; w2 = c.r; break;
+        case ORDER_GRB:
+        default:        w0 = c.g; w1 = c.r; w2 = c.b; break;
+    }
+    Rgb out;
+    out.g = w0;                     // the bus emits g first
+    out.r = w1;
+    out.b = w2;
+    return out;
+}
+
+// Scale a colour proportionally so no channel exceeds maxBrightness.
+// Proportional scaling preserves hue; a per-channel cap would not.
+// Rounds to nearest, so a full channel survives even at maxBrightness == 1.
+inline Rgb scaleBrightness(Rgb c, uint8_t maxBrightness) {
+    Rgb out;
+    out.r = (uint8_t)(((uint16_t)c.r * maxBrightness + 127) / 255);
+    out.g = (uint8_t)(((uint16_t)c.g * maxBrightness + 127) / 255);
+    out.b = (uint8_t)(((uint16_t)c.b * maxBrightness + 127) / 255);
+    return out;
+}
+
+inline const char* colorOrderName(ColorOrder o) {
+    switch (o) {
+        case ORDER_RGB: return "RGB";
+        case ORDER_BRG: return "BRG";
+        case ORDER_RBG: return "RBG";
+        case ORDER_GBR: return "GBR";
+        case ORDER_BGR: return "BGR";
+        case ORDER_GRB:
+        default:        return "GRB";
+    }
+}
+
+inline bool colorOrderFromName(const char* name, ColorOrder* out) {
+    if (name == nullptr || out == nullptr) { return false; }
+    for (uint8_t o = 0; o < ORDER_COUNT; o++) {
+        const char* n = colorOrderName((ColorOrder)o);
+        if (n[0] == name[0] && n[1] == name[1] && n[2] == name[2] && name[3] == '\0') {
+            *out = (ColorOrder)o;
+            return true;
+        }
+    }
+    return false;
+}
+
 #endif
