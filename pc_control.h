@@ -5,6 +5,10 @@
 #include <Arduino.h>
 #include <Bluepad32.h>
 
+// Defined in led_bar.h, which is included after this header.
+void ledBarPowerOffImminent();
+void ledBarPump();
+
 // Power state machine states
 enum PowerState {
     POWER_IDLE,
@@ -134,7 +138,12 @@ void updatePcState() {
                 // This clears Bluepad32's state and lets the
                 // controller be detected again
                 Serial.println("PC powered off - restarting ESP32 in 2 seconds...");
-                delay(2000);
+                ledBarPowerOffImminent();
+                unsigned long fadeStart = millis();
+                while (millis() - fadeStart < 2000) {
+                    ledBarPump();
+                    delay(5);
+                }
                 ESP.restart();
             }
         }

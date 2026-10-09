@@ -52,6 +52,13 @@ private:
     uint32_t lastFrameMs = 0;
     DrgbFrame pendingFrame;         // newest frame WITH pixels, awaiting render
     bool pendingValid = false;      // gates pendingFrame; it is otherwise unread
+    bool fadingOut = false;
+    uint32_t fadeOutStartMs = 0;
+    bool darkLatched = false;       // set by /win&T=0, cleared by any DRGB packet
+    PowerState lastSeenPowerState = POWER_IDLE;
+    uint32_t stateEnteredMs = 0;    // when the current power state began
+
+    Rgb idleColor(uint32_t now);
 
     void loadConfig();
     bool saveConfig();              // false if LittleFS could not be written
@@ -185,7 +192,76 @@ inline uint32_t LedBar::lastPacketAge() const {
     return millis() - lastPacketMs;
 }
 
-inline void LedBar::onPowerOffImminent() { /* Task 6 */ }
+// Steam blue, used for the "powered on, waiting for the bridge" breath.
+#define LED_STEAM_R 0x00
+#define LED_STEAM_G 0xAE
+#define LED_STEAM_B 0xEF
+
+static inline bool isPoweringOn(PowerState s) {
+    return s == POWER_ON_START || s == POWER_ON_WAITING_RELAY2 ||
+           s == POWER_ON_COMPLETE;
+}
+
+static inline bool isShuttingDown(PowerState s) {
+    return s == POWER_OFF_START || s == POWER_OFF_WAITING ||
+           s == POWER_OFF_WAITING_POWEROFF || s == POWER_FORCE_START ||
+           s == POWER_FORCE_WAITING;
+}
+
+inline Rgb LedBar::idleColor(uint32_t now) {
+    const Rgb steam = { LED_STEAM_R, LED_STEAM_G, LED_STEAM_B };
+
+    // Restart animations on every power-state transition.
+    if (powerState != lastSeenPowerState) {
+        // POWER_ON_* has three sub-states. Treat the whole power-on sequence as
+        // one animation so the amber fade-in is not restarted two extra times
+        // as the relay sequence advances.
+        bool sameGroup = isPoweringOn(powerState) && isPoweringOn(lastSeenPowerState);
+        lastSeenPowerState = powerState;
+        if (!sameGroup) { stateEnteredMs = now; }
+
+        if (isShuttingDown(powerState)) {
+            fadingOut = true;
+            fadeOutStartMs = now;
+        } else if (isPoweringOn(powerState)) {
+            fadingOut = false;
+        }
+        // On a transition to POWER_IDLE, leave fadingOut alone: pc_control.h
+        // calls ledBarPowerOffImminent() while already in POWER_IDLE, and
+        // clearing the flag here would cancel that fade before it renders.
+    }
+
+    if (darkLatched) { return { 0, 0, 0 }; }
+    if (!config.idleAnimations) { return { 0, 0, 0 }; }
+
+    if (fadingOut) {
+        uint32_t elapsed = now - fadeOutStartMs;
+        if (elapsed >= 1500) { return { 0, 0, 0 }; }
+        uint8_t k = (uint8_t)(255 - (elapsed * 255) / 1500);
+        return scaleBrightness(steam, k);
+    }
+
+    if (isPoweringOn(powerState)) {
+        // Warm amber fading in over 2 s, then holding until the state changes.
+        uint32_t elapsed = now - stateEnteredMs;
+        uint8_t k = elapsed >= 2000 ? 255 : (uint8_t)((elapsed * 255) / 2000);
+        return scaleBrightness({ 255, 140, 20 }, k);
+    }
+
+    if (!pcIsOn) { return { 0, 0, 0 }; }
+
+    // PSU on, ESP32 alive, bridge not streaming: slow Steam-blue breath,
+    // 4 s period. This is the state you will be diagnosing most often.
+    uint32_t t = now % 4000;
+    uint32_t tri = t < 2000 ? t : (4000 - t);           // 0..2000..0
+    uint8_t k = (uint8_t)(16 + (tri * (255 - 16)) / 2000);
+    return scaleBrightness(steam, k);
+}
+
+inline void LedBar::onPowerOffImminent() {
+    fadingOut = true;
+    fadeOutStartMs = millis();
+}
 inline void LedBar::startTestPattern()   { /* Task 8 */ }
 
 inline void LedBar::bindUdp() {
@@ -254,6 +330,8 @@ inline void LedBar::handle() {
         uint32_t t = (uint32_t)latestTimeout * 1000;
         streamTimeoutMs = t > LED_MIN_TIMEOUT_MS ? t : LED_MIN_TIMEOUT_MS;
         streaming = true;
+        darkLatched = false;
+        fadingOut = false;
     } else if (streaming && (now - lastPacketMs) > streamTimeoutMs) {
         streaming = false;
     }
@@ -272,10 +350,12 @@ inline void LedBar::handle() {
         return;
     }
 
-    // Idle animation: Task 6.
-    writeAll({ 0, 0, 0 });
+    writeAll(idleColor(now));
 }
 
 extern LedBar ledBar;
+
+inline void ledBarPowerOffImminent() { ledBar.onPowerOffImminent(); }
+inline void ledBarPump()             { ledBar.handle(); }
 
 #endif
