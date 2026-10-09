@@ -48,8 +48,9 @@ still functional.
 
 ## Flash budget
 
-Program storage is 1,245,277 of 1,310,720 bytes (95%), leaving about 65 KB. OTA
-still works because the image fits the 1.31 MB app partition. If a future feature
+Program storage is roughly 95% of the 1.31 MB app partition, about 64 KB free
+(re-check with the compile output rather than trusting this note). OTA
+still works because the image fits the app partition. If a future feature
 overflows, switch the partition scheme to "Minimal SPIFFS (1.9MB APP with OTA)":
 it raises the app partition by roughly 600 KB, the `data/` folder is only about
 43 KB so the smaller filesystem is ample, and OTA is preserved.
