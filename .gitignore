@@ -1,0 +1,13 @@
+# Host test build output
+test/build/
+
+# Arduino build artifacts
+build/
+*.bin
+*.elf
+*.map
+
+# Editor / OS
+.vscode/
+.DS_Store
+Thumbs.db
