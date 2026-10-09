@@ -31,4 +31,7 @@
 //     GND -- [ 17  18 ] -- GND
 
 
+// WS2812B LED BAR
+#define LED_DATA_PIN 18 // >> WS2812B DIN via 1N4148 diode or 74AHCT125 level shifter
+
 #endif

@@ -11,6 +11,7 @@
 
 // IMPORTANT: include pc_control.h FIRST so that PowerState is known
 #include "pc_control.h"
+#include "led_bar.h"
 
 // Global variables
 WebServer server(80);
@@ -293,6 +294,9 @@ void setup() {
     
     Serial.println("Setting up web server...");
     setupWebServer();
+
+    Serial.println("Setting up LED bar...");
+    ledBar.begin();
     
     Serial.println("=== BC-250 READY ===\n");
 }
@@ -472,4 +476,6 @@ void loop() {
     
     // ================ SMALL DELAY ================
     delay(1);
+
+    ledBar.handle();
 }
