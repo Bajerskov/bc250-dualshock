@@ -39,6 +39,15 @@ public:
     uint32_t droppedPackets() const { return dropped; }
     void onPowerOffImminent();
     void startTestPattern();
+    void setDarkLatched(bool latched) {
+        darkLatched = latched;
+        if (latched) {
+            fadingOut = true;
+            fadeOutStartMs = millis();
+        } else {
+            fadingOut = false;
+        }
+    }
 
 private:
     LedConfig config = { true, 8, 200, ORDER_GRB, true };

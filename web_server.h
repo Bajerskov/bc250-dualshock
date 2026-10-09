@@ -443,6 +443,91 @@ void setupWebServer() {
         server.send(200, "application/json", response);
     });
 
+    // API: LED bar configuration - GET
+    server.on("/api/led/config", HTTP_GET, []() {
+        LedConfig c = ledBar.getConfig();
+        StaticJsonDocument<384> doc;
+        doc["enabled"]        = c.enabled;
+        doc["ledCount"]       = c.ledCount;
+        doc["maxBrightness"]  = c.maxBrightness;
+        doc["colorOrder"]     = colorOrderName(c.colorOrder);
+        doc["idleAnimations"] = c.idleAnimations;
+        doc["streaming"]      = ledBar.isStreaming();
+        uint32_t age = ledBar.lastPacketAge();
+        doc["lastPacketAge"]  = (age == UINT32_MAX) ? -1 : (int32_t)age;
+        doc["droppedPackets"] = ledBar.droppedPackets();
+        doc["maxLedCount"]    = LED_MAX_COUNT;
+
+        String out;
+        serializeJson(doc, out);
+        server.send(200, "application/json", out);
+    });
+
+    // API: LED bar configuration - POST
+    server.on("/api/led/config", HTTP_POST, []() {
+        if (!server.hasArg("plain")) {
+            server.send(400, "application/json", "{\"error\":\"no body\"}");
+            return;
+        }
+        StaticJsonDocument<384> doc;
+        if (deserializeJson(doc, server.arg("plain"))) {
+            server.send(400, "application/json", "{\"error\":\"bad json\"}");
+            return;
+        }
+
+        LedConfig c = ledBar.getConfig();
+        if (doc["enabled"].is<bool>())        { c.enabled = doc["enabled"]; }
+        if (doc["ledCount"].is<int>())        { c.ledCount = doc["ledCount"]; }
+        if (doc["maxBrightness"].is<int>())   { c.maxBrightness = doc["maxBrightness"]; }
+        if (doc["idleAnimations"].is<bool>()) { c.idleAnimations = doc["idleAnimations"]; }
+        if (doc["colorOrder"].is<const char*>()) {
+            ColorOrder o;
+            const char* name = doc["colorOrder"].as<const char*>();
+            if (!colorOrderFromName(name, &o)) {
+                server.send(400, "application/json",
+                            "{\"error\":\"colorOrder must be one of "
+                            "GRB RGB BRG RBG GBR BGR\"}");
+                return;
+            }
+            c.colorOrder = o;
+        }
+
+        SetConfigResult res = ledBar.setConfig(c);
+        if (res == SET_INVALID) {
+            server.send(400, "application/json",
+                        "{\"error\":\"ledCount must be 1-17, "
+                        "maxBrightness 1-255\"}");
+            return;
+        }
+        if (res == SET_SAVE_FAILED) {
+            // Applied in memory, but it will not survive a reboot.
+            server.send(500, "application/json",
+                        "{\"error\":\"could not write /led_config.json\","
+                        "\"appliedInMemory\":true}");
+            return;
+        }
+        server.send(200, "application/json", "{\"ok\":true}");
+    });
+
+    // API: LED bar test pattern
+    server.on("/api/led/test", HTTP_POST, []() {
+        ledBar.startTestPattern();
+        server.send(200, "application/json", "{\"ok\":true}");
+    });
+
+    // The steamos-led-wled bridge's power control calls these literally, with
+    // an "&" and no "?", so the whole string is the request path and there is
+    // no query to parse.
+    server.on("/win&T=1", HTTP_GET, []() {
+        ledBar.setDarkLatched(false);
+        server.send(200, "text/plain", "OK");
+    });
+
+    server.on("/win&T=0", HTTP_GET, []() {
+        ledBar.setDarkLatched(true);
+        server.send(200, "text/plain", "OK");
+    });
+
     // 404 - Not found
     server.onNotFound([]() {
         server.send(404, "text/plain", "404: Not Found");
