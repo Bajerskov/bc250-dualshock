@@ -29,10 +29,11 @@ static int g_checks = 0;
 } while (0)
 
 static void test_constants() {
-    CHECK(LED_MAX_COUNT == 17);
+    CHECK(LED_SRC_COUNT == 17);
+    CHECK(LED_MAX_COUNT == 24);
     CHECK(DRGB_PROTOCOL_ID == 2);
     CHECK(DRGB_HEADER_SIZE == 2);
-    CHECK(DRGB_MAX_PACKET == 53);
+    CHECK(DRGB_MAX_PACKET == 74);
     CHECK(ORDER_COUNT == 6);
 }
 
@@ -90,7 +91,7 @@ static void test_parse_drgb() {
     // maxLeds above the hard maximum is itself clamped.
     f = parseDrgb(full, sizeof(full), 200);
     CHECK(f.valid);
-    CHECK(f.ledCount == 17);
+    CHECK(f.ledCount == LED_MAX_COUNT);
 
     // maxLeds of 0 yields a valid frame with no pixels.
     f = parseDrgb(full, sizeof(full), 0);
@@ -108,18 +109,18 @@ static void test_parse_drgb() {
     const uint8_t zero_timeout[] = { 2, 0, 1, 2, 3 };
     CHECK(parseDrgb(zero_timeout, sizeof(zero_timeout), 17).timeoutSec == 0);
 
-    // Boundary: 54 and 55 bytes are just past the 53-byte maximum and must be
-    // DROPPED, not truncated down to 17 pixels. A regression to "truncate"
-    // would pass every other oversize test in this file.
-    uint8_t over54[54] = { 2, 2 };
-    CHECK(!parseDrgb(over54, sizeof(over54), 17).valid);
-    uint8_t over55[55] = { 2, 2 };
-    CHECK(!parseDrgb(over55, sizeof(over55), 17).valid);
+    // Boundary: 75 and 76 bytes are just past the 74-byte maximum and must be
+    // DROPPED, not truncated. A regression to "truncate" would pass every other
+    // oversize test in this file.
+    uint8_t over75[75] = { 2, 2 };
+    CHECK(!parseDrgb(over75, sizeof(over75), LED_MAX_COUNT).valid);
+    uint8_t over76[76] = { 2, 2 };
+    CHECK(!parseDrgb(over76, sizeof(over76), LED_MAX_COUNT).valid);
 
-    // The receive buffer in the UDP path is DRGB_MAX_PACKET + 16 = 69 bytes, so
-    // pin that length too: a read that fills the buffer must still be dropped.
-    uint8_t over69[69] = { 2, 2 };
-    CHECK(!parseDrgb(over69, sizeof(over69), 17).valid);
+    // The UDP receive buffer is DRGB_MAX_PACKET + 16 = 90 bytes, so pin that
+    // length too: a read that fills the buffer must still be dropped.
+    uint8_t over90[90] = { 2, 2 };
+    CHECK(!parseDrgb(over90, sizeof(over90), LED_MAX_COUNT).valid);
 }
 
 static void test_color_order() {
@@ -207,11 +208,88 @@ static void test_scale_brightness() {
     CHECK_RGB(scaleBrightness({ 255, 255, 255 }, 0), 0, 0, 0);
 }
 
+static void test_upsample() {
+    // Exact-fit case with hand-computed expectations. srcCount 3 -> dstCount 5
+    // puts every interpolated sample exactly halfway, so the maths is checkable
+    // by eye: 0, 50, 100, 150, 200.
+    const Rgb src3[3] = { { 0, 0, 0 }, { 100, 100, 100 }, { 200, 200, 200 } };
+    Rgb dst5[5];
+    upsamplePixels(src3, 3, dst5, 5);
+    CHECK_RGB(dst5[0],   0,   0,   0);
+    CHECK_RGB(dst5[1],  50,  50,  50);
+    CHECK_RGB(dst5[2], 100, 100, 100);
+    CHECK_RGB(dst5[3], 150, 150, 150);
+    CHECK_RGB(dst5[4], 200, 200, 200);
+
+    // Endpoints must be preserved exactly for the real 17 -> 24 case, with no
+    // interpolation error creeping into the first or last LED.
+    Rgb src17[LED_SRC_COUNT];
+    for (uint8_t i = 0; i < LED_SRC_COUNT; i++) {
+        src17[i].r = (uint8_t)(i * 15);
+        src17[i].g = (uint8_t)(255 - i * 15);
+        src17[i].b = 42;
+    }
+    Rgb dst24[24];
+    upsamplePixels(src17, LED_SRC_COUNT, dst24, 24);
+    CHECK_RGB(dst24[0],  src17[0].r,  src17[0].g,  src17[0].b);
+    CHECK_RGB(dst24[23], src17[16].r, src17[16].g, src17[16].b);
+
+    // A constant channel stays constant everywhere: interpolation must not
+    // introduce drift or rounding noise.
+    for (uint8_t i = 0; i < 24; i++) { CHECK(dst24[i].b == 42); }
+
+    // Monotonic input stays monotonic after stretching.
+    for (uint8_t i = 1; i < 24; i++) { CHECK(dst24[i].r >= dst24[i - 1].r); }
+    for (uint8_t i = 1; i < 24; i++) { CHECK(dst24[i].g <= dst24[i - 1].g); }
+
+    // Every output is within the range of its two source neighbours, i.e. the
+    // interpolation never overshoots.
+    for (uint8_t i = 0; i < 24; i++) {
+        CHECK(dst24[i].r <= src17[16].r);
+        CHECK(dst24[i].g >= src17[16].g);
+    }
+
+    // dstCount == srcCount is a straight copy, not a resample.
+    Rgb same[LED_SRC_COUNT];
+    upsamplePixels(src17, LED_SRC_COUNT, same, LED_SRC_COUNT);
+    for (uint8_t i = 0; i < LED_SRC_COUNT; i++) {
+        CHECK_RGB(same[i], src17[i].r, src17[i].g, src17[i].b);
+    }
+
+    // dstCount < srcCount copies the leading pixels; it must NOT downsample,
+    // because the bridge already does that when num_leds < 17.
+    Rgb fewer[5];
+    upsamplePixels(src17, LED_SRC_COUNT, fewer, 5);
+    for (uint8_t i = 0; i < 5; i++) {
+        CHECK_RGB(fewer[i], src17[i].r, src17[i].g, src17[i].b);
+    }
+
+    // Degenerate inputs must be safe.
+    Rgb one[1];
+    upsamplePixels(src17, LED_SRC_COUNT, one, 1);
+    CHECK_RGB(one[0], src17[0].r, src17[0].g, src17[0].b);
+
+    const Rgb solo[1] = { { 7, 8, 9 } };
+    Rgb spread[4];
+    upsamplePixels(solo, 1, spread, 4);
+    for (uint8_t i = 0; i < 4; i++) { CHECK_RGB(spread[i], 7, 8, 9); }
+
+    // srcCount 0 yields black rather than reading src at all.
+    Rgb blanked[3];
+    upsamplePixels(nullptr, 0, blanked, 3);
+    for (uint8_t i = 0; i < 3; i++) { CHECK_RGB(blanked[i], 0, 0, 0); }
+
+    // Null dst and zero dstCount must not crash.
+    upsamplePixels(src17, LED_SRC_COUNT, nullptr, 4);
+    upsamplePixels(src17, LED_SRC_COUNT, dst24, 0);
+}
+
 int main() {
     test_parse_drgb();
     test_constants();
     test_color_order();
     test_scale_brightness();
+    test_upsample();
 
     printf("\n%d checks, %d failures\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;

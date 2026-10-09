@@ -360,7 +360,16 @@ inline void LedBar::handle() {
         // interval leaves pendingValid false, so the strip holds its last
         // frame rather than being rewritten or blanked.
         if (pendingValid) {
-            showPixels(pendingFrame.pixels, pendingFrame.ledCount);
+            if (pendingFrame.ledCount < config.ledCount) {
+                // The bridge can only ever send LED_SRC_COUNT pixels, so stretch
+                // them across a longer strip rather than leaving the tail dark.
+                Rgb stretched[LED_MAX_COUNT];
+                upsamplePixels(pendingFrame.pixels, pendingFrame.ledCount,
+                               stretched, config.ledCount);
+                showPixels(stretched, config.ledCount);
+            } else {
+                showPixels(pendingFrame.pixels, pendingFrame.ledCount);
+            }
             pendingValid = false;
         }
         return;

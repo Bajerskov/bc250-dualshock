@@ -486,7 +486,7 @@ void setupWebServer() {
             int v = doc["ledCount"].as<int>();
             if (v < 1 || v > LED_MAX_COUNT) {
                 server.send(400, "application/json",
-                            "{\"error\":\"ledCount must be 1-17\"}");
+                            "{\"error\":\"ledCount must be 1-24\"}");
                 return;
             }
             c.ledCount = (uint8_t)v;
@@ -516,7 +516,7 @@ void setupWebServer() {
         SetConfigResult res = ledBar.setConfig(c);
         if (res == SET_INVALID) {
             server.send(400, "application/json",
-                        "{\"error\":\"ledCount must be 1-17, "
+                        "{\"error\":\"ledCount must be 1-24, "
                         "maxBrightness 1-255\"}");
             return;
         }

@@ -8,19 +8,23 @@
 #include <stdint.h>
 #include <stddef.h>
 
-#define LED_MAX_COUNT     17
+#define LED_SRC_COUNT     17    // the Valve LED bar's source pixel count
+#define LED_MAX_COUNT     24    // maximum supported strip length
 #define DRGB_PROTOCOL_ID  2
 #define DRGB_HEADER_SIZE  2
 #define DRGB_MAX_PACKET   (DRGB_HEADER_SIZE + LED_MAX_COUNT * 3)
 
 // The 100-byte snapshot the host bridge reads from the kernel module carries 17
-// pixels, and the DRGB packet we receive must match that on the wire. These are
-// a contract with the host, so pin them at compile time -- on the ESP32 build
-// as well as the host tests, where a runtime CHECK would never run.
-static_assert(LED_MAX_COUNT == 17, "LED_MAX_COUNT is fixed by the Valve LED bar");
+// pixels, and that is fixed by the Valve hardware. Our strip may be longer, so
+// LED_MAX_COUNT is separate and the firmware upsamples. These are a contract
+// with the host, so pin them at compile time -- on the ESP32 build as well as
+// the host tests, where a runtime CHECK would never run.
+static_assert(LED_SRC_COUNT == 17, "the Valve LED bar has 17 pixels");
+static_assert(LED_MAX_COUNT >= LED_SRC_COUNT, "strip must be at least source length");
+static_assert(LED_MAX_COUNT == 24, "maximum supported strip length");
 static_assert(DRGB_PROTOCOL_ID == 2, "DRGB is WLED realtime protocol 2");
 static_assert(DRGB_HEADER_SIZE == 2, "DRGB header is protocol id + timeout");
-static_assert(DRGB_MAX_PACKET == 53, "2 header bytes + 17 pixels * 3 bytes");
+static_assert(DRGB_MAX_PACKET == 74, "2 header bytes + 24 pixels * 3 bytes");
 
 enum ColorOrder : uint8_t {
     ORDER_GRB = 0,
@@ -141,6 +145,62 @@ inline bool colorOrderFromName(const char* name, ColorOrder* out) {
         }
     }
     return false;
+}
+
+// Stretch srcCount pixels across dstCount LEDs with linear interpolation.
+//
+// The Valve LED bar has LED_SRC_COUNT pixels and the bridge cannot send more,
+// so a longer strip is filled here. Endpoints map exactly onto the first and
+// last source pixel; everything between is blended from its two neighbours.
+//
+// Fixed-point 8.8 arithmetic, no floats: the position of output i is
+//   pos = i * (srcCount-1) * 256 / (dstCount-1)
+// whose integer part selects the source pixel and whose fraction is the blend.
+// The largest product is 23 * 16 * 256 = 94208, well inside uint32_t.
+//
+// dstCount <= srcCount is a straight copy of the leading pixels, NOT a
+// downsample -- the bridge already downsamples when its num_leds is below 17.
+inline void upsamplePixels(const Rgb* src, uint8_t srcCount,
+                           Rgb* dst, uint8_t dstCount) {
+    if (dst == nullptr || dstCount == 0) { return; }
+
+    if (src == nullptr || srcCount == 0) {
+        for (uint8_t i = 0; i < dstCount; i++) {
+            dst[i].r = 0; dst[i].g = 0; dst[i].b = 0;
+        }
+        return;
+    }
+
+    if (srcCount == 1 || dstCount == 1) {
+        for (uint8_t i = 0; i < dstCount; i++) { dst[i] = src[0]; }
+        return;
+    }
+
+    if (dstCount <= srcCount) {
+        for (uint8_t i = 0; i < dstCount; i++) { dst[i] = src[i]; }
+        return;
+    }
+
+    const uint32_t span = (uint32_t)(srcCount - 1) * 256u;
+    const uint32_t steps = (uint32_t)(dstCount - 1);
+
+    for (uint8_t i = 0; i < dstCount; i++) {
+        uint32_t pos  = ((uint32_t)i * span) / steps;
+        uint32_t idx  = pos >> 8;
+        uint32_t frac = pos & 0xFFu;
+
+        if (idx >= (uint32_t)(srcCount - 1)) {
+            dst[i] = src[srcCount - 1];
+            continue;
+        }
+
+        const Rgb a = src[idx];
+        const Rgb b = src[idx + 1];
+        uint32_t inv = 256u - frac;
+        dst[i].r = (uint8_t)((a.r * inv + b.r * frac) >> 8);
+        dst[i].g = (uint8_t)((a.g * inv + b.g * frac) >> 8);
+        dst[i].b = (uint8_t)((a.b * inv + b.b * frac) >> 8);
+    }
 }
 
 #endif
