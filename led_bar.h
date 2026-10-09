@@ -50,6 +50,8 @@ private:
     uint32_t streamTimeoutMs = 2000;
     uint32_t dropped = 0;
     uint32_t lastFrameMs = 0;
+    DrgbFrame pendingFrame;         // newest frame WITH pixels, awaiting render
+    bool pendingValid = false;      // gates pendingFrame; it is otherwise unread
 
     void loadConfig();
     bool saveConfig();              // false if LittleFS could not be written
@@ -220,26 +222,36 @@ inline void LedBar::handle() {
 
     bindUdp();
 
-    // Drain the socket; the newest complete frame wins.
-    DrgbFrame latest;
-    latest.valid = false;
-    bool got = false;
+    // Drain the socket. The newest PIXEL-BEARING frame wins and is held in a
+    // member, because handle() runs far more often than it renders: draining
+    // into a local and returning early at the frame-interval check below would
+    // consume and discard most frames.
+    bool gotAny = false;            // any valid packet, keepalives included
+    uint8_t latestTimeout = 0;
     if (udpBound) {
         int size;
-        while ((size = udp.parsePacket()) > 0) {
+        uint8_t drained = 0;
+        while (drained < 16 && (size = udp.parsePacket()) > 0) {
+            drained++;
             uint8_t buf[DRGB_MAX_PACKET + 16];
             int n = udp.read(buf, sizeof(buf));
             if (n <= 0) { continue; }
             DrgbFrame f = parseDrgb(buf, (size_t)n, config.ledCount);
             if (!f.valid) { dropped++; continue; }
-            latest = f;
-            got = true;
+
+            gotAny = true;              // liveness, even for a keepalive
+            latestTimeout = f.timeoutSec;
+
+            if (f.ledCount > 0) {       // a keepalive must not suppress a frame
+                pendingFrame = f;
+                pendingValid = true;
+            }
         }
     }
 
-    if (got) {
+    if (gotAny) {
         lastPacketMs = now == 0 ? 1 : now;
-        uint32_t t = (uint32_t)latest.timeoutSec * 1000;
+        uint32_t t = (uint32_t)latestTimeout * 1000;
         streamTimeoutMs = t > LED_MIN_TIMEOUT_MS ? t : LED_MIN_TIMEOUT_MS;
         streaming = true;
     } else if (streaming && (now - lastPacketMs) > streamTimeoutMs) {
@@ -250,10 +262,12 @@ inline void LedBar::handle() {
     lastFrameMs = now;
 
     if (streaming) {
-        // A header-only keepalive has ledCount 0: refresh liveness, change
-        // nothing on the strip.
-        if (got && latest.ledCount > 0) {
-            showPixels(latest.pixels, latest.ledCount);
+        // Render the newest frame we have been holding. A keepalive-only
+        // interval leaves pendingValid false, so the strip holds its last
+        // frame rather than being rewritten or blanked.
+        if (pendingValid) {
+            showPixels(pendingFrame.pixels, pendingFrame.ledCount);
+            pendingValid = false;
         }
         return;
     }
