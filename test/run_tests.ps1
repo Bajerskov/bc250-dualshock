@@ -18,7 +18,7 @@ $exe = Join-Path $out "test_led_protocol.exe"
 # file: '': Invalid argument".
 #
 # /wd4127 silences C4127 "conditional expression is constant", which /W4 emits
-# for every assertion on a compile-time constant, e.g. CHECK(LED_MAX_COUNT == 17).
+# for every assertion on a compile-time constant, e.g. CHECK(LED_MAX_COUNT == 24).
 cmd /c "`"$vcvars`" >nul 2>&1 && cd /d `"$out`" && cl /nologo /EHsc /W4 /wd4127 /std:c++17 /I`"$root`" `"$src`" /Fe:test_led_protocol.exe"
 if ($LASTEXITCODE -ne 0) { throw "compile failed" }
 

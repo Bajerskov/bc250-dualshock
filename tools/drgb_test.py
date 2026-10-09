@@ -85,7 +85,7 @@ def malformed(sock, host):
         ("wrong protocol WARLS", bytes([1, 2, 255, 0, 0])),
         ("wrong protocol DRGBW", bytes([3, 2, 255, 0, 0])),
         ("wrong protocol DNRGB", bytes([4, 2, 0, 0, 255, 0, 0])),
-        ("oversized", bytes([2, 2]) + bytes(18 * 3)),
+        ("oversized", bytes([2, 2]) + bytes(25 * 3)),
         ("partial pixel", bytes([2, 2, 9, 9, 9, 7, 7])),
         ("zero timeout", bytes([2, 0, 0, 255, 0])),
     ]

@@ -70,7 +70,7 @@ static void test_parse_drgb() {
         CHECK(!parseDrgb(p, sizeof(p), 17).valid);
     }
 
-    // Oversized: one LED past the 17-LED maximum.
+    // Oversized: one LED past the 24-LED maximum.
     uint8_t big[DRGB_MAX_PACKET + 3] = { 2, 2 };
     CHECK(!parseDrgb(big, sizeof(big), 17).valid);
 

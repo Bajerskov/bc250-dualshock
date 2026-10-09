@@ -135,6 +135,7 @@ inline void LedBar::initStrip() {
     }
     strip = new NeoPixelBus<NeoGrbFeature, NeoEsp32Rmt0Ws2812xMethod>(
         config.ledCount, LED_DATA_PIN);
+    if (strip == nullptr) { return; }
     strip->Begin();
     writeAll({ 0, 0, 0 });
 }
@@ -313,6 +314,9 @@ inline void LedBar::handle() {
 
     if (!config.enabled) {
         // A stray packet must never light a disabled strip, so do not even read.
+        // Clear the stream state too, or isStreaming() would stick true.
+        streaming = false;
+        pendingValid = false;
         return;
     }
 

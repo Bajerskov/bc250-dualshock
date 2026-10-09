@@ -178,9 +178,11 @@
           Mirrors the Steam Machine LED bar from a WS2812B strip on GPIO 18.
           Install <code>steamos-led-wled</code> on the BC-250 and point it at this device's IP.
           <br><br>
-          The Valve LED bar has 17 pixels. The firmware stretches them across your strip, so a
-          longer strip looks slightly softer than a native image; both ends map exactly onto the
-          first and last source pixel. LED count is 1-24 and the default is 8, so set it to match
+          The Valve LED bar has 17 pixels. For a strip longer than 17 the firmware stretches them
+          across your strip, so it looks slightly softer than a native image; both ends map exactly
+          onto the first and last source pixel. For a strip shorter than 17, set the bridge's
+          <code>num_leds</code> to the strip length so the host downsamples (otherwise the extra
+          pixels are cropped). LED count is 1-24 and the default is 8, so set it to match
           your strip.
           <br><br>
           <span style="color:#ffaa00;">⚠️ At high LED counts and high brightness the strip needs an
@@ -580,10 +582,16 @@
     });
 
     document.getElementById('ledSave').addEventListener('click', async function () {
+      const ledCount = parseInt(document.getElementById('ledCount').value, 10);
+      const maxBrightness = parseInt(document.getElementById('ledBrightness').value, 10);
+      if (Number.isNaN(ledCount) || Number.isNaN(maxBrightness)) {
+        ledSetStatus('Not saved: enter a number for LED count and max brightness');
+        return;
+      }
       const body = {
         enabled: document.getElementById('ledEnabled').checked,
-        ledCount: parseInt(document.getElementById('ledCount').value, 10),
-        maxBrightness: parseInt(document.getElementById('ledBrightness').value, 10),
+        ledCount: ledCount,
+        maxBrightness: maxBrightness,
         colorOrder: document.getElementById('ledColorOrder').value,
         idleAnimations: document.getElementById('ledIdle').checked
       };

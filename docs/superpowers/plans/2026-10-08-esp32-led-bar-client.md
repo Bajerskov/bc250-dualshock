@@ -649,7 +649,7 @@ In `pins.h`, before the closing `#endif`:
 
 ```cpp
 // WS2812B LED BAR
-#define LED_DATA_PIN 18 // >> WS2812B DIN via 1N4148 diode or 74AHCT125 level shifter
+#define LED_DATA_PIN 18 // >> WS2812B DIN via 74AHCT125 level shifter - see README "Data line"
 ```
 
 - [ ] **Step 2: Write `led_bar.h`**
@@ -1501,7 +1501,7 @@ curl "http://<esp-ip>/win&T=0"
 python tools/drgb_test.py <esp-ip> solid 0 255 0
 ```
 
-Expected: `T=0` fades the strip out and holds it dark; the following DRGB run lights it green anyway, because any DRGB packet unlatches. Then:
+Expected: `T=0` makes the strip go dark and hold (it snaps to black, no fade); the following DRGB run lights it green anyway, because any DRGB packet unlatches. Then:
 
 ```bash
 curl "http://<esp-ip>/win&T=0"
@@ -1728,7 +1728,7 @@ one device handles both power control and the LED bar.
 
 | ESP32 pin | Connection |
 |---|---|
-| GPIO 18 | WS2812B DIN, via a 1N4148 diode (anode to GPIO) or a 74AHCT125 level shifter |
+| GPIO 18 | WS2812B DIN, through a 74AHCT125 level shifter. Do not put a diode on the data line (it lowers the logic high); the alternative is a 2 A+ Schottky in the +5 V supply rail |
 | GND | strip GND |
 | 5V | strip VCC — for more than 8 LEDs use an external 5 V supply sharing GND |
 

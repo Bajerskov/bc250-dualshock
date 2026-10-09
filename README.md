@@ -46,6 +46,14 @@ The project keeps using `StaticJsonDocument` from ArduinoJson 7.x for
 consistency with its existing config functions. It is deprecated in v7 but
 still functional.
 
+## Flash budget
+
+Program storage is 1,245,277 of 1,310,720 bytes (95%), leaving about 65 KB. OTA
+still works because the image fits the 1.31 MB app partition. If a future feature
+overflows, switch the partition scheme to "Minimal SPIFFS (1.9MB APP with OTA)":
+it raises the app partition by roughly 600 KB, the `data/` folder is only about
+43 KB so the smaller filesystem is ample, and OTA is preserved.
+
 ## Strip length
 
 Supported strip length is 1-24 LEDs (default 8). The Valve LED bar has 17
@@ -102,12 +110,15 @@ sudo ./install.sh
 
 In `/etc/steamos-led-wled.conf` set `wled_host` to the ESP32's IP address.
 
-**Keep `num_leds = 17`. Do NOT set it to your strip length.** The bridge reads
-a fixed 100-byte snapshot of the Valve LED bar, and `extract_pixels()` indexes
-`snapshot[32 + i*4]`. At pixel 17 that reads offset 100 and Python raises
-`IndexError`, which kills the service instead of lighting more LEDs. There is
-no validation to warn you. The ESP32 does the stretching to your strip length,
-so the strip length is configured only in the web UI.
+**Set `num_leds` to your strip length, capped at 17** (`min(strip length, 17)`).
+For a 24-LED strip that means `num_leds = 17`, and the firmware stretches the 17
+pixels across all 24. For a strip shorter than 17 it means the strip length, and
+the bridge downsamples the Valve bar to fit. **Never set it above 17.** The
+bridge reads a fixed 100-byte snapshot of the Valve LED bar, and
+`extract_pixels()` indexes `snapshot[32 + i*4]`. At pixel 17 that reads offset
+100 and Python raises `IndexError`, which kills the service instead of lighting
+more LEDs. There is no validation to warn you. The strip length itself is
+configured in the web UI.
 
 Only the **DRGB** protocol mode is supported (WARLS, DRGBW and DNRGB packets are
 ignored). Because DRGB is the standard WLED realtime protocol, HyperHDR,
@@ -118,6 +129,10 @@ port 21324.
 
 Open `http://<esp-ip>/setup` and use the **LED Bar** card to set the LED count
 (1-24), maximum brightness and colour order.
+
+`data/setup.html` is served from LittleFS, so a sketch-only flash or OTA leaves
+the old page with no LED card. Upload the filesystem separately, via the
+`/update-fs` endpoint or the Arduino IDE's LittleFS upload tool.
 
 Cheap clone WS2812B strips do not always use GRB order. Test strip shows red,
 then green, then blue for one second each, but it is remapped through the
@@ -146,15 +161,17 @@ python tools/drgb_test.py <esp-ip> malformed
 
 `[leds]` is the pixel count per packet. It defaults to 8 and is clamped to
 1-24. Packets shorter than the strip are resampled by the firmware, so the
-default 8-pixel test still lights the whole strip. A strip shorter than 8
-LEDs gets the packet downsampled.
+default 8-pixel test still lights the whole strip. A packet longer than the
+strip is **cropped** to the first N pixels, not downsampled, so a strip shorter
+than the packet shows only its left part. The fix is to set the sender's pixel
+count (the bridge's `num_leds`, or `[leds]` here) to the strip length.
 
 ## Troubleshooting
 
 | Problem | Cause |
 |---|---|
 | Strip breathes blue and never shows Game Mode colours | The bridge is not streaming. Check `sudo systemctl status steamos-led-wled` on the BC-250 |
-| steamos-led-wled stops right after you edit its config | `num_leds` was set above 17. Set it back to 17 |
+| steamos-led-wled stops right after you edit its config | `num_leds` was set above 17. Set it to your strip length, at most 17 |
 | Colours wrong (red shows as green, etc.) | Clone colour order. Follow the colour-order procedure above |
 | First LED flickers or colours are unstable | No 74AHCT125 level shifter (or supply-side voltage drop), or no shared ground |
 | Strip dim but correct | `Max brightness` is low, or the strip is underpowered - use an external 5 V supply |

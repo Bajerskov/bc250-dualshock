@@ -480,6 +480,26 @@ void setupWebServer() {
             return;
         }
 
+        // A known key that is present, not null and the wrong type would
+        // otherwise fall through every branch below and answer 200 having
+        // changed nothing. Reject it by name. Absent or null means "not
+        // supplied". This runs before any state is touched.
+        struct TypeCheck { const char* key; bool ok; };
+        const TypeCheck checks[] = {
+            { "enabled",        doc["enabled"].isNull()        || doc["enabled"].is<bool>() },
+            { "ledCount",       doc["ledCount"].isNull()       || doc["ledCount"].is<int>() },
+            { "maxBrightness",  doc["maxBrightness"].isNull()  || doc["maxBrightness"].is<int>() },
+            { "colorOrder",     doc["colorOrder"].isNull()     || doc["colorOrder"].is<const char*>() },
+            { "idleAnimations", doc["idleAnimations"].isNull() || doc["idleAnimations"].is<bool>() },
+        };
+        for (const TypeCheck& t : checks) {
+            if (!t.ok) {
+                String err = String("{\"error\":\"") + t.key + " has the wrong type\"}";
+                server.send(400, "application/json", err);
+                return;
+            }
+        }
+
         LedConfig c = ledBar.getConfig();
         if (doc["enabled"].is<bool>())        { c.enabled = doc["enabled"]; }
         if (doc["ledCount"].is<int>()) {

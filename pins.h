@@ -32,6 +32,6 @@
 
 
 // WS2812B LED BAR
-#define LED_DATA_PIN 18 // >> WS2812B DIN via 1N4148 diode or 74AHCT125 level shifter
+#define LED_DATA_PIN 18 // >> WS2812B DIN via 74AHCT125 level shifter - see README "Data line"
 
 #endif

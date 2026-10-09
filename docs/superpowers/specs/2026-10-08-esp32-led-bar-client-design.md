@@ -4,6 +4,8 @@
 **Status:** Approved, pending implementation plan
 **Target version:** 1.7.0 (from 1.6.1)
 
+> **Amendment, 2026-10-09:** the original 17-LED cap was raised to 24 after the user's strip turned out to have 24 LEDs. `LED_SRC_COUNT` (17, the Valve bar's fixed pixel count) is now separate from `LED_MAX_COUNT` (24, the longest supported strip). The bridge cannot send more than 17 pixels, so the firmware upsamples (linear interpolation) when a frame carries fewer pixels than the configured strip length. Figures below have been updated accordingly.
+
 ## Purpose
 
 Make the BC-250 remote PSU controller drive the Steam Machine LED bar in addition to controlling power. One ESP32 does both jobs; no second microcontroller.
@@ -40,15 +42,15 @@ byte 3+n*3  : green for LED n
 byte 4+n*3  : blue  for LED n
 ```
 
-17 LEDs is 53 bytes. The bridge streams at roughly 30 fps and sets timeout = 2.
+24 LEDs is 74 bytes (the bridge itself sends at most 17, i.e. 53 bytes). The bridge streams at roughly 30 fps and sets timeout = 2.
 
 The bridge's optional `wled_power_control` setting issues HTTP GETs to `http://<host>/win&T=1` and `http://<host>/win&T=0`. Note the literal `&` with no `?`: the ESP32 WebServer sees the whole thing as the request path with an empty query string, so these are registered as two exact URIs, not parsed as query parameters.
 
 ### Hardware
 
 - WS2812B **clone** strip, not a genuine Adafruit NeoPixel. Clone batches need a ~300 us reset gap rather than the classic 50 us, and sometimes ship RGB or BRG colour order where genuine parts ship GRB. Both are accommodated below.
-- Data line via a 1N4148 signal diode (anode to GPIO, cathode to DIN) or a 74AHCT125 level shifter. See upstream `WIRING.md`.
-- 1 to 17 LEDs. Above 8, power the strip from an external 5 V supply sharing ground with the ESP32.
+- Data line through a 74AHCT125 level shifter (recommended). The alternative is a 2 A+ Schottky diode (e.g. 1N5820) in series with the strip's +5 V supply rail, which lowers VDD and the logic threshold. Do not put a diode in series with the data line: it lowers the logic high further. See README "Data line".
+- 1 to 24 LEDs. Above 8, power the strip from an external 5 V supply sharing ground with the ESP32.
 - GPIO 18 for data. Taken already: 16, 2, 23, 22, 4, 17.
 
 ### Rejected alternatives
@@ -109,7 +111,7 @@ The effect math, UDP buffer and strip object are private. Four things are answer
 2. Decide the source.
 3. Render at most one frame, and only if 20 ms have elapsed (50 fps ceiling).
 
-Worst case per pass is about 53 bytes of copying and one RMT write.
+Worst case per pass is about 74 bytes of copying and one RMT write.
 
 ### Colour order
 
@@ -137,7 +139,7 @@ No host address or port: the ESP32 listens, so it needs neither. This is a real 
 
 A missing or corrupt file falls back to these defaults and rewrites the file, the same way `loadPS5Config()` behaves today.
 
-`maxBrightness` is a firmware-side current limit. 17 LEDs at full white draws roughly 1 A, which the dev board regulator will not survive. It is applied on every frame from every source, including the test pattern, so no host misconfiguration and no malformed packet can exceed it.
+`maxBrightness` is a firmware-side current limit. 24 LEDs at full white draws roughly 1.4 A, which the dev board regulator will not survive. It is applied on every frame from every source, including the test pattern, so no host misconfiguration and no malformed packet can exceed it.
 
 It **scales proportionally** rather than capping per channel: each channel becomes `value * maxBrightness / 255`. Scaling preserves hue; capping distorts it. At `maxBrightness` 128, amber `(255, 200, 0)` scales to `(128, 100, 0)` and stays amber, but a per-channel cap would yield `(128, 128, 0)` — pure yellow. The function is named `scaleBrightness()` to keep that unambiguous.
 
@@ -151,7 +153,7 @@ It **scales proportionally** rather than capping per channel: each channel becom
 | `/win&T=1` | GET | bridge power-on: allow output, return 200 |
 | `/win&T=0` | GET | bridge power-off: fade out, latch dark |
 
-POST validation: `ledCount` 1 to 17, `maxBrightness` 1 to 255, `colorOrder` one of the six permutations. Out-of-range values are rejected with 400 and the config is left untouched.
+POST validation: `ledCount` 1 to 24, `maxBrightness` 1 to 255, `colorOrder` one of the six permutations. Out-of-range values are rejected with 400 and the config is left untouched.
 
 ## Idle state machine
 
@@ -200,7 +202,7 @@ The restart behaviour itself is unchanged: same delay, same `ESP.restart()`, sam
 
 | Failure | Behaviour |
 |---|---|
-| UDP packet shorter than 2 bytes, or longer than `2 + 17*3` | Drop, increment `droppedPackets` |
+| UDP packet shorter than 2 bytes, or longer than `2 + 24*3` | Drop, increment `droppedPackets` |
 | `buf[0] != 2` (WARLS, DRGBW, DNRGB) | Ignore. Only DRGB is supported; documented in the README |
 | Packet carries more LEDs than `ledCount` | Render the first `ledCount`, ignore the rest |
 | Packet carries fewer | Render what arrived, leave the tail untouched |
