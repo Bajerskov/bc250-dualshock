@@ -170,6 +170,59 @@
         <button onclick="savePS5()" class="btn" style="width:100%; margin-top:30px;">💾 SAVE PS5 SETTINGS</button>
         <div id="ps5Status" style="margin-top:15px;"></div>
       </div>
+
+      <h1>💡 LED BAR</h1>
+
+      <div class="settings-section">
+        <div class="info-text" style="margin-bottom:20px;">
+          Mirrors the Steam Machine LED bar from a WS2812B strip on GPIO 18.
+          Install <code>steamos-led-wled</code> on the BC-250 and point it at this device's IP.
+        </div>
+
+        <label style="display:flex; align-items:center; margin:20px 0; cursor:pointer;">
+          <input type="checkbox" id="ledEnabled" style="width:20px; height:20px; margin-right:12px; accent-color:#00d9ff;">
+          <strong style="font-family:'Share Tech Mono';">ENABLE LED BAR</strong>
+        </label>
+
+        <label style="display:block; margin:20px 0;">
+          <strong style="font-family:'Share Tech Mono';">LED COUNT (1-24):</strong>
+          <input type="number" id="ledCount" min="1" max="24" step="1" style="width:100%; padding:15px; margin-top:8px; background:#0a0a0f; border:2px solid #2a2a3a; color:#fff; border-radius:4px; font-family:'Share Tech Mono';">
+        </label>
+
+        <label style="display:block; margin:20px 0;">
+          <strong style="font-family:'Share Tech Mono';">MAX BRIGHTNESS:</strong>
+          <span id="ledBrightnessVal" style="font-family:'Share Tech Mono'; color:#00d9ff; margin-left:10px;"></span>
+          <input type="range" id="ledBrightness" min="1" max="255" style="width:100%; margin-top:8px; accent-color:#00d9ff;">
+        </label>
+
+        <label style="display:block; margin:20px 0;">
+          <strong style="font-family:'Share Tech Mono';">COLOUR ORDER:</strong>
+          <select id="ledColorOrder" style="width:100%; padding:15px; margin-top:8px; background:#0a0a0f; border:2px solid #2a2a3a; color:#fff; border-radius:4px; font-family:'Share Tech Mono';">
+            <option value="GRB">GRB (default)</option>
+            <option value="RGB">RGB</option>
+            <option value="BRG">BRG</option>
+            <option value="RBG">RBG</option>
+            <option value="GBR">GBR</option>
+            <option value="BGR">BGR</option>
+          </select>
+        </label>
+
+        <label style="display:flex; align-items:center; margin:20px 0; cursor:pointer;">
+          <input type="checkbox" id="ledIdle" style="width:20px; height:20px; margin-right:12px; accent-color:#00d9ff;">
+          <strong style="font-family:'Share Tech Mono';">POWER-STATE ANIMATIONS WHEN IDLE</strong>
+        </label>
+
+        <div style="display: flex; gap: 10px; margin: 20px 0; flex-wrap: wrap;">
+          <button id="ledSave" class="btn" style="flex: 1 1 200px; padding:15px;">💾 SAVE LED SETTINGS</button>
+          <button id="ledTest" class="btn" style="flex: 1 1 200px; padding:15px;">🎨 TEST STRIP</button>
+        </div>
+
+        <div id="ledStatus" class="status-message"></div>
+        <div class="info-text">
+          Test strip shows red, then green, then blue for one second each. If the
+          colours come out in a different order, pick the order you actually saw.
+        </div>
+      </div>
     </div>
   </main>
   
@@ -464,9 +517,68 @@
       }
     }
     
+    // ---- LED bar ----
+    async function ledLoad() {
+      try {
+        const r = await fetch('/api/led/config');
+        const c = await r.json();
+        // Do not clobber a field the user is editing during the 5 s refresh.
+        const ae = document.activeElement;
+        const busy = !!(ae && ae.id && ae.id.indexOf('led') === 0 && ae.tagName !== 'BUTTON');
+        if (!busy) {
+          document.getElementById('ledEnabled').checked = c.enabled;
+          document.getElementById('ledCount').value = c.ledCount;
+          document.getElementById('ledBrightness').value = c.maxBrightness;
+          document.getElementById('ledBrightnessVal').textContent = c.maxBrightness;
+          document.getElementById('ledColorOrder').value = c.colorOrder;
+          document.getElementById('ledIdle').checked = c.idleAnimations;
+        }
+        document.getElementById('ledStatus').textContent =
+          (c.streaming ? 'Streaming from host' : 'No stream') +
+          ' | dropped packets: ' + c.droppedPackets;
+      } catch (e) {
+        document.getElementById('ledStatus').textContent = 'Error loading LED status';
+        console.error(e);
+      }
+    }
+
+    document.getElementById('ledBrightness').addEventListener('input', function (e) {
+      document.getElementById('ledBrightnessVal').textContent = e.target.value;
+    });
+
+    document.getElementById('ledSave').addEventListener('click', async function () {
+      const body = {
+        enabled: document.getElementById('ledEnabled').checked,
+        ledCount: parseInt(document.getElementById('ledCount').value, 10),
+        maxBrightness: parseInt(document.getElementById('ledBrightness').value, 10),
+        colorOrder: document.getElementById('ledColorOrder').value,
+        idleAnimations: document.getElementById('ledIdle').checked
+      };
+      try {
+        const r = await fetch('/api/led/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        });
+        const res = await r.json();
+        document.getElementById('ledStatus').textContent =
+          r.ok ? 'Saved' : ('Error: ' + (res.error || r.status));
+        if (r.ok) { ledLoad(); }
+      } catch (e) {
+        document.getElementById('ledStatus').textContent = 'Connection error: ' + e.message;
+        console.error(e);
+      }
+    });
+
+    document.getElementById('ledTest').addEventListener('click', function () {
+      fetch('/api/led/test', { method: 'POST' }).catch(function (e) { console.error(e); });
+    });
+
     window.onload = function() {
       loadWiFiStatus();
       loadPS5();
+      ledLoad();
+      setInterval(ledLoad, 5000);
       setInterval(updateControllerStatus, 2000);
     };
   </script>

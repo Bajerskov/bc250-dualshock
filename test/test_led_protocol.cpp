@@ -282,6 +282,23 @@ static void test_upsample() {
     // Null dst and zero dstCount must not crash.
     upsamplePixels(src17, LED_SRC_COUNT, nullptr, 4);
     upsamplePixels(src17, LED_SRC_COUNT, dst24, 0);
+    // Pin the real 17 -> 24 interpolation output, not just its endpoints. These
+    // values come from running the committed algorithm; a change here means the
+    // interpolation maths changed.
+    Rgb ramp[LED_SRC_COUNT];
+    for (uint8_t i = 0; i < LED_SRC_COUNT; i++) {
+        ramp[i].r = (uint8_t)(i * 15);
+        ramp[i].g = 0;
+        ramp[i].b = 0;
+    }
+    Rgb ramp24[24];
+    upsamplePixels(ramp, LED_SRC_COUNT, ramp24, 24);
+    const uint8_t expected[24] = {
+          0,  10,  20,  31,  41,  52,  62,  73,
+         83,  93, 104, 114, 125, 135, 146, 156,
+        166, 177, 187, 198, 208, 219, 229, 240
+    };
+    for (uint8_t i = 0; i < 24; i++) { CHECK(ramp24[i].r == expected[i]); }
 }
 
 int main() {

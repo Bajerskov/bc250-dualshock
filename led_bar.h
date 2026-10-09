@@ -58,6 +58,7 @@ private:
     uint32_t lastPacketMs = 0;
     uint32_t streamTimeoutMs = 2000;
     uint32_t dropped = 0;
+    uint32_t testStartMs = 0;       // 0 = not running
     uint32_t lastFrameMs = 0;
     DrgbFrame pendingFrame;         // newest frame WITH pixels, awaiting render
     bool pendingValid = false;      // gates pendingFrame; it is otherwise unread
@@ -278,7 +279,10 @@ inline void LedBar::onPowerOffImminent() {
         fadeOutStartMs = millis();
     }
 }
-inline void LedBar::startTestPattern()   { /* Task 8 */ }
+inline void LedBar::startTestPattern() {
+    testStartMs = millis();
+    if (testStartMs == 0) { testStartMs = 1; }
+}
 
 inline void LedBar::bindUdp() {
     // In STA mode the socket must be re-bound after a reconnect, because the
@@ -354,6 +358,14 @@ inline void LedBar::handle() {
 
     if (now - lastFrameMs < LED_FRAME_INTERVAL) { return; }
     lastFrameMs = now;
+
+    if (testStartMs != 0) {
+        uint32_t elapsed = now - testStartMs;
+        if (elapsed < 1000)      { writeAll({ 255, 0, 0 }); return; }
+        else if (elapsed < 2000) { writeAll({ 0, 255, 0 }); return; }
+        else if (elapsed < 3000) { writeAll({ 0, 0, 255 }); return; }
+        testStartMs = 0;
+    }
 
     if (streaming) {
         // Render the newest frame we have been holding. A keepalive-only
