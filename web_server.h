@@ -8,6 +8,7 @@
 #include "pc_control.h"
 #include "version.h"
 #include "pins.h"
+#include "led_bar.h"
 
 extern WebServer server;
 extern bool pcIsOn;
@@ -454,7 +455,11 @@ void setupWebServer() {
         doc["idleAnimations"] = c.idleAnimations;
         doc["streaming"]      = ledBar.isStreaming();
         uint32_t age = ledBar.lastPacketAge();
-        doc["lastPacketAge"]  = (age == UINT32_MAX) ? -1 : (int32_t)age;
+        // -1 means "never". Clamp instead of casting: past INT32_MAX the cast
+        // goes negative and would be mistaken for the never-received sentinel.
+        doc["lastPacketAge"]  = (age == UINT32_MAX) ? -1
+                              : (age > (uint32_t)INT32_MAX) ? INT32_MAX
+                              : (int32_t)age;
         doc["droppedPackets"] = ledBar.droppedPackets();
         doc["maxLedCount"]    = LED_MAX_COUNT;
 
@@ -477,8 +482,24 @@ void setupWebServer() {
 
         LedConfig c = ledBar.getConfig();
         if (doc["enabled"].is<bool>())        { c.enabled = doc["enabled"]; }
-        if (doc["ledCount"].is<int>())        { c.ledCount = doc["ledCount"]; }
-        if (doc["maxBrightness"].is<int>())   { c.maxBrightness = doc["maxBrightness"]; }
+        if (doc["ledCount"].is<int>()) {
+            int v = doc["ledCount"].as<int>();
+            if (v < 1 || v > LED_MAX_COUNT) {
+                server.send(400, "application/json",
+                            "{\"error\":\"ledCount must be 1-17\"}");
+                return;
+            }
+            c.ledCount = (uint8_t)v;
+        }
+        if (doc["maxBrightness"].is<int>()) {
+            int v = doc["maxBrightness"].as<int>();
+            if (v < 1 || v > 255) {
+                server.send(400, "application/json",
+                            "{\"error\":\"maxBrightness must be 1-255\"}");
+                return;
+            }
+            c.maxBrightness = (uint8_t)v;
+        }
         if (doc["idleAnimations"].is<bool>()) { c.idleAnimations = doc["idleAnimations"]; }
         if (doc["colorOrder"].is<const char*>()) {
             ColorOrder o;
