@@ -1,6 +1,7 @@
 #ifndef LED_BAR_H
 #define LED_BAR_H
 
+#include <WiFi.h>
 #include <NeoPixelBus.h>
 #include <WiFiUdp.h>
 #include <ArduinoJson.h>
@@ -71,17 +72,23 @@ inline void LedBar::loadConfig() {
 
     LedConfig c;
     c.enabled        = doc["enabled"] | true;
-    c.ledCount       = doc["ledCount"] | 8;
-    c.maxBrightness  = doc["maxBrightness"] | 200;
     c.idleAnimations = doc["idleAnimations"] | true;
+
+    int rawCount      = doc["ledCount"] | 8;
+    int rawBrightness = doc["maxBrightness"] | 200;
+
+    // Range-check BEFORE narrowing to uint8_t: a hand-edited file containing
+    // 257 would otherwise wrap to 1 and pass validation as a one-LED strip.
+    if (rawCount < 1 || rawCount > LED_MAX_COUNT) { rawCount = 8; }
+    if (rawBrightness < 1 || rawBrightness > 255) { rawBrightness = 200; }
+
+    c.ledCount      = (uint8_t)rawCount;
+    c.maxBrightness = (uint8_t)rawBrightness;
 
     ColorOrder order = ORDER_GRB;
     const char* name = doc["colorOrder"] | "GRB";
     colorOrderFromName(name, &order);
     c.colorOrder = order;
-
-    if (c.ledCount < 1 || c.ledCount > LED_MAX_COUNT) { c.ledCount = 8; }
-    if (c.maxBrightness < 1) { c.maxBrightness = 200; }
 
     config = c;
 }
@@ -179,15 +186,82 @@ inline uint32_t LedBar::lastPacketAge() const {
 inline void LedBar::onPowerOffImminent() { /* Task 6 */ }
 inline void LedBar::startTestPattern()   { /* Task 8 */ }
 
-inline void LedBar::handle() {
-    if (!config.enabled) { return; }
+inline void LedBar::bindUdp() {
+    // In STA mode the socket must be re-bound after a reconnect, because the
+    // interface goes down and takes the binding with it. In AP mode the softAP
+    // interface is always up, so treat that as connected.
+    bool linkUp = (WiFi.status() == WL_CONNECTED) ||
+                  (WiFi.getMode() & WIFI_AP);
 
-    uint32_t now = millis();
-    if (now - lastFrameMs < LED_FRAME_INTERVAL) { return; }
-    lastFrameMs = now;
-    // Stream handling: Task 5. Idle animation: Task 6.
+    if (!linkUp) {
+        if (udpBound) {
+            udp.stop();
+            udpBound = false;
+            Serial.println("LED bar: WiFi down, UDP unbound");
+        }
+        return;
+    }
+
+    if (udpBound) { return; }
+
+    if (udp.begin(LED_UDP_PORT)) {
+        udpBound = true;
+        Serial.printf("LED bar: listening on UDP %d\n", LED_UDP_PORT);
+    }
 }
 
-LedBar ledBar;
+inline void LedBar::handle() {
+    uint32_t now = millis();
+
+    if (!config.enabled) {
+        // A stray packet must never light a disabled strip, so do not even read.
+        return;
+    }
+
+    bindUdp();
+
+    // Drain the socket; the newest complete frame wins.
+    DrgbFrame latest;
+    latest.valid = false;
+    bool got = false;
+    if (udpBound) {
+        int size;
+        while ((size = udp.parsePacket()) > 0) {
+            uint8_t buf[DRGB_MAX_PACKET + 16];
+            int n = udp.read(buf, sizeof(buf));
+            if (n <= 0) { continue; }
+            DrgbFrame f = parseDrgb(buf, (size_t)n, config.ledCount);
+            if (!f.valid) { dropped++; continue; }
+            latest = f;
+            got = true;
+        }
+    }
+
+    if (got) {
+        lastPacketMs = now == 0 ? 1 : now;
+        uint32_t t = (uint32_t)latest.timeoutSec * 1000;
+        streamTimeoutMs = t > LED_MIN_TIMEOUT_MS ? t : LED_MIN_TIMEOUT_MS;
+        streaming = true;
+    } else if (streaming && (now - lastPacketMs) > streamTimeoutMs) {
+        streaming = false;
+    }
+
+    if (now - lastFrameMs < LED_FRAME_INTERVAL) { return; }
+    lastFrameMs = now;
+
+    if (streaming) {
+        // A header-only keepalive has ledCount 0: refresh liveness, change
+        // nothing on the strip.
+        if (got && latest.ledCount > 0) {
+            showPixels(latest.pixels, latest.ledCount);
+        }
+        return;
+    }
+
+    // Idle animation: Task 6.
+    writeAll({ 0, 0, 0 });
+}
+
+extern LedBar ledBar;
 
 #endif

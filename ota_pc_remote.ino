@@ -63,6 +63,7 @@ unsigned long powerStateStartTime = 0;
 
 // PS5 class
 PS5Simple ps5Simple;
+LedBar ledBar;
 
 // ================ PROTOTYPES ================
 bool getStablePcState();
