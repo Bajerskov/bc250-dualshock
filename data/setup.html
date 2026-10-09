@@ -177,6 +177,15 @@
         <div class="info-text" style="margin-bottom:20px;">
           Mirrors the Steam Machine LED bar from a WS2812B strip on GPIO 18.
           Install <code>steamos-led-wled</code> on the BC-250 and point it at this device's IP.
+          <br><br>
+          The Valve LED bar has 17 pixels. The firmware stretches them across your strip, so a
+          longer strip looks slightly softer than a native image; both ends map exactly onto the
+          first and last source pixel. LED count is 1-24 and the default is 8, so set it to match
+          your strip.
+          <br><br>
+          <span style="color:#ffaa00;">⚠️ At high LED counts and high brightness the strip needs an
+          external 5 V supply that shares ground with the ESP32. 24 LEDs at full white draw roughly
+          1.4 A, which the dev board's regulator cannot provide.</span>
         </div>
 
         <label style="display:flex; align-items:center; margin:20px 0; cursor:pointer;">
@@ -219,8 +228,20 @@
 
         <div id="ledStatus" class="status-message"></div>
         <div class="info-text">
-          Test strip shows red, then green, then blue for one second each. If the
-          colours come out in a different order, pick the order you actually saw.
+          <strong>Finding your strip's colour order.</strong> Cheap clone WS2812B strips often
+          ship as RGB or BRG where genuine parts are GRB, which is why this control exists.
+          TEST STRIP shows red, then green, then blue for one second each, using the
+          <em>saved</em> colour order (not whatever the dropdown shows now), and only works while
+          ENABLE LED BAR is ticked and saved.
+          <ol style="margin:8px 0 0 20px;">
+            <li>Make sure ENABLE LED BAR is on and saved, with COLOUR ORDER on the default GRB.
+              Click TEST STRIP. If you see red, then green, then blue, your strip is GRB and you
+              are done.</li>
+            <li>Otherwise set COLOUR ORDER to RGB, click SAVE, then click TEST STRIP again. The
+              order of the three colours you now see is your strip's channel order. For example,
+              green, red, blue means GRB. Select that value, click SAVE.</li>
+            <li>Click TEST STRIP once more to confirm you now see red, then green, then blue.</li>
+          </ol>
         </div>
       </div>
     </div>
@@ -518,9 +539,19 @@
     }
     
     // ---- LED bar ----
+    let ledStatusUntil = 0;
+    function ledSetStatus(msg) {
+      document.getElementById('ledStatus').textContent = msg;
+      ledStatusUntil = Date.now() + 8000;   // survive at least one 5 s poll
+    }
+
     async function ledLoad() {
       try {
         const r = await fetch('/api/led/config');
+        if (!r.ok) {
+          ledSetStatus('Error loading LED settings: HTTP ' + r.status);
+          return;
+        }
         const c = await r.json();
         // Do not clobber a field the user is editing during the 5 s refresh.
         const ae = document.activeElement;
@@ -533,11 +564,13 @@
           document.getElementById('ledColorOrder').value = c.colorOrder;
           document.getElementById('ledIdle').checked = c.idleAnimations;
         }
-        document.getElementById('ledStatus').textContent =
-          (c.streaming ? 'Streaming from host' : 'No stream') +
-          ' | dropped packets: ' + c.droppedPackets;
+        if (Date.now() >= ledStatusUntil) {
+          document.getElementById('ledStatus').textContent =
+            (c.streaming ? 'Streaming from host' : 'No stream') +
+            ' | dropped packets: ' + c.droppedPackets;
+        }
       } catch (e) {
-        document.getElementById('ledStatus').textContent = 'Error loading LED status';
+        ledSetStatus('Error loading LED status: ' + e.message);
         console.error(e);
       }
     }
@@ -561,17 +594,26 @@
           body: JSON.stringify(body)
         });
         const res = await r.json();
-        document.getElementById('ledStatus').textContent =
-          r.ok ? 'Saved' : ('Error: ' + (res.error || r.status));
+        ledSetStatus(r.ok ? 'Saved' : ('Error: ' + (res.error || r.status)));
         if (r.ok) { ledLoad(); }
       } catch (e) {
-        document.getElementById('ledStatus').textContent = 'Connection error: ' + e.message;
+        ledSetStatus('Connection error: ' + e.message);
         console.error(e);
       }
     });
 
-    document.getElementById('ledTest').addEventListener('click', function () {
-      fetch('/api/led/test', { method: 'POST' }).catch(function (e) { console.error(e); });
+    document.getElementById('ledTest').addEventListener('click', async function () {
+      try {
+        const r = await fetch('/api/led/test', { method: 'POST' });
+        if (r.ok) {
+          ledSetStatus('Running test: red, green, blue, 3 s (uses the saved colour order; the bar must be enabled)');
+        } else {
+          ledSetStatus('Test failed: HTTP ' + r.status);
+        }
+      } catch (e) {
+        ledSetStatus('Test failed: ' + e.message);
+        console.error(e);
+      }
     });
 
     window.onload = function() {
