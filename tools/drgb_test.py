@@ -2,10 +2,12 @@
 """Send WLED DRGB realtime packets to the ESP32 LED bar client.
 
 Usage:
-  python tools/drgb_test.py <esp-ip> solid <r> <g> <b>
-  python tools/drgb_test.py <esp-ip> rainbow [seconds]
-  python tools/drgb_test.py <esp-ip> soak [seconds]
+  python tools/drgb_test.py <esp-ip> solid <r> <g> <b> [leds]
+  python tools/drgb_test.py <esp-ip> rainbow [seconds] [leds]
+  python tools/drgb_test.py <esp-ip> soak [seconds] [leds]
   python tools/drgb_test.py <esp-ip> malformed
+
+[leds] is the number of pixels per packet (default 8, clamped to 1-24).
 """
 import colorsys
 import socket
@@ -15,7 +17,16 @@ import time
 PORT = 21324
 DRGB = 2
 TIMEOUT_SEC = 2
-NUM_LEDS = 8
+DEFAULT_LEDS = 8
+MAX_LEDS = 24
+
+
+def clamp_leds(n):
+    """Clamp a requested pixel count to 1..MAX_LEDS, noting any change."""
+    c = max(1, min(MAX_LEDS, n))
+    if c != n:
+        print(f"note: {n} LEDs is outside 1-{MAX_LEDS}, using {c}")
+    return c
 
 
 def packet(pixels):
@@ -33,21 +44,21 @@ def send(sock, host, data):
     sock.sendto(data, (host, PORT))
 
 
-def solid(sock, host, r, g, b, seconds=5):
-    data = packet([(r, g, b)] * NUM_LEDS)
+def solid(sock, host, r, g, b, leds=DEFAULT_LEDS, seconds=5):
+    data = packet([(r, g, b)] * leds)
     end = time.time() + seconds
     while time.time() < end:
         send(sock, host, data)
         time.sleep(1 / 30)
 
 
-def rainbow(sock, host, seconds=10):
+def rainbow(sock, host, seconds=10, leds=DEFAULT_LEDS):
     end = time.time() + seconds
     phase = 0.0
     while time.time() < end:
         px = []
-        for i in range(NUM_LEDS):
-            h = (phase + i / NUM_LEDS) % 1.0
+        for i in range(leds):
+            h = (phase + i / leds) % 1.0
             r, g, b = colorsys.hsv_to_rgb(h, 1.0, 1.0)
             px.append((int(r * 255), int(g * 255), int(b * 255)))
         send(sock, host, packet(px))
@@ -55,12 +66,12 @@ def rainbow(sock, host, seconds=10):
         time.sleep(1 / 30)
 
 
-def soak(sock, host, seconds=60):
+def soak(sock, host, seconds=60, leds=DEFAULT_LEDS):
     end = time.time() + seconds
     frames = 0
     while time.time() < end:
         v = frames % 256
-        send(sock, host, packet([(v, 255 - v, 128)] * NUM_LEDS))
+        send(sock, host, packet([(v, 255 - v, 128)] * leds))
         frames += 1
         time.sleep(1 / 30)
     print(f"sent {frames} frames in {seconds}s")
@@ -95,11 +106,16 @@ def main():
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     if mode == "solid":
         r, g, b = (int(x) for x in sys.argv[3:6])
-        solid(sock, host, r, g, b)
+        leds = clamp_leds(int(sys.argv[6])) if len(sys.argv) > 6 else DEFAULT_LEDS
+        solid(sock, host, r, g, b, leds)
     elif mode == "rainbow":
-        rainbow(sock, host, int(sys.argv[3]) if len(sys.argv) > 3 else 10)
+        secs = int(sys.argv[3]) if len(sys.argv) > 3 else 10
+        leds = clamp_leds(int(sys.argv[4])) if len(sys.argv) > 4 else DEFAULT_LEDS
+        rainbow(sock, host, secs, leds)
     elif mode == "soak":
-        soak(sock, host, int(sys.argv[3]) if len(sys.argv) > 3 else 60)
+        secs = int(sys.argv[3]) if len(sys.argv) > 3 else 60
+        leds = clamp_leds(int(sys.argv[4])) if len(sys.argv) > 4 else DEFAULT_LEDS
+        soak(sock, host, secs, leds)
     elif mode == "malformed":
         malformed(sock, host)
     else:

@@ -34,6 +34,116 @@ In the search bar, type "esp32_bluepad32".
 - ArduinoJson 
 
 
+# LED Bar (optional)
+
+Mirrors the Steam Machine LED bar on a WS2812B strip driven by this ESP32, so
+one device handles both power control and the LED bar. When no stream is live
+the strip shows power-state animations instead. This feature has not yet been
+verified on hardware.
+
+## Extra library
+
+- [NeoPixelBus by Makuna](https://github.com/Makuna/NeoPixelBus) - 2.8.0 or
+  newer (2.8.4 is the version it was built against). Earlier releases lack
+  the RMT support for ESP32 Arduino 3.x, which the `esp32-bluepad32` core
+  4.1.0 is built on, so they will not compile.
+
+The project keeps using `StaticJsonDocument` from ArduinoJson 7.x for
+consistency with its existing config functions. It is deprecated in v7 but
+still functional.
+
+## Strip length
+
+Supported strip length is 1-24 LEDs (default 8). The Valve LED bar has 17
+pixels, fixed by hardware. The firmware stretches those 17 across your strip
+with linear interpolation, and the first and last strip LEDs map exactly onto
+the first and last source pixel.
+
+## Wiring
+
+| ESP32 pin | Connection |
+|---|---|
+| GPIO 18 | WS2812B DIN, via a 1N4148 diode (anode to GPIO) or a 74AHCT125 level shifter |
+| GND | strip GND |
+| 5V | strip VCC - see the power note below |
+
+Power: at 24 LEDs an external 5 V supply is required, not merely advisable.
+Full white is roughly 1.4 A, which is beyond the dev board's regulator. Power
+the strip from the external supply and share its ground with the ESP32.
+
+A 1000 uF capacitor across the strip's VCC/GND near the first LED is
+recommended for longer strips.
+
+## Host side
+
+Install [steamos-led-wled](https://github.com/rpf16rj/steamos-led-wled) on the
+BC-250 and point it at this device:
+
+```bash
+git clone https://github.com/rpf16rj/steamos-led-wled.git
+cd steamos-led-wled
+sudo ./install.sh
+```
+
+In `/etc/steamos-led-wled.conf` set `wled_host` to the ESP32's IP address.
+
+**Keep `num_leds = 17`. Do NOT set it to your strip length.** The bridge reads
+a fixed 100-byte snapshot of the Valve LED bar, and `extract_pixels()` indexes
+`snapshot[32 + i*4]`. At pixel 17 that reads offset 100 and Python raises
+`IndexError`, which kills the service instead of lighting more LEDs. There is
+no validation to warn you. The ESP32 does the stretching to your strip length,
+so the strip length is configured only in the web UI.
+
+Only the **DRGB** protocol mode is supported (WARLS, DRGBW and DNRGB packets are
+ignored). Because DRGB is the standard WLED realtime protocol, HyperHDR,
+Hyperion and Prismatik can also drive the strip. The device listens on UDP
+port 21324.
+
+## Configure
+
+Open `http://<esp-ip>/setup` and use the **LED Bar** card to set the LED count
+(1-24), maximum brightness and colour order.
+
+Cheap clone WS2812B strips do not always use GRB order. Test strip shows red,
+then green, then blue for one second each, but it is remapped through the
+**saved** colour order, so do not simply pick what you saw. Use this procedure:
+
+1. The bar must be enabled and saved. Test strip uses the saved colour order,
+   not whatever the dropdown currently shows, and does nothing while the bar
+   is disabled.
+2. With the order on the default **GRB**, click Test strip. If you see red,
+   then green, then blue, your strip is GRB and you are done.
+3. Otherwise set the order to **RGB**, save, and test again. The order of the
+   three colours you now see **is** your strip's channel order - for example
+   green, red, blue means GRB. Select that order and save.
+4. Test once more to confirm you now see red, then green, then blue.
+
+## Test tool
+
+`tools/drgb_test.py` sends DRGB packets directly to the ESP32:
+
+```
+python tools/drgb_test.py <esp-ip> solid <r> <g> <b> [leds]
+python tools/drgb_test.py <esp-ip> rainbow [seconds] [leds]
+python tools/drgb_test.py <esp-ip> soak [seconds] [leds]
+python tools/drgb_test.py <esp-ip> malformed
+```
+
+`[leds]` is the pixel count per packet. It defaults to 8 and is clamped to
+1-24. Packets shorter than the strip are upsampled by the firmware, so the
+default 8-pixel test still lights the whole strip.
+
+## Troubleshooting
+
+| Problem | Cause |
+|---|---|
+| Strip breathes blue and never shows Game Mode colours | The bridge is not streaming. Check `sudo systemctl status steamos-led-wled` on the BC-250 |
+| steamos-led-wled stops right after you edit its config | `num_leds` was set above 17. Set it back to 17 |
+| Colours wrong (red shows as green, etc.) | Clone colour order. Follow the colour-order procedure above |
+| First LED flickers or colours are unstable | Missing diode or level shifter on the data line, or no shared ground |
+| Strip dim but correct | `Max brightness` is low, or the strip is underpowered - use an external 5 V supply |
+| Nothing at all | Confirm the strip is enabled in the web UI and `droppedPackets` is not climbing (wrong protocol mode) |
+
 # SETUP Notes
 - WIFI AP mode is laggy, be patient. IP: http://192.168.4.1
 - https not work!
