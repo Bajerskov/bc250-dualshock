@@ -259,8 +259,15 @@ inline Rgb LedBar::idleColor(uint32_t now) {
 }
 
 inline void LedBar::onPowerOffImminent() {
-    fadingOut = true;
-    fadeOutStartMs = millis();
+    // Idempotent: a POWER_OFF_* / POWER_FORCE_* transition has usually already
+    // started (and often finished) this fade by the time pc_control.h calls us
+    // at POWER_IDLE. Resetting the timer here would jump the strip from black
+    // back to full brightness and fade a second time, a visible flash right
+    // before the restart.
+    if (!fadingOut) {
+        fadingOut = true;
+        fadeOutStartMs = millis();
+    }
 }
 inline void LedBar::startTestPattern()   { /* Task 8 */ }
 
