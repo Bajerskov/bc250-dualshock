@@ -81,8 +81,8 @@ The WS2812B datasheet puts the logic-high threshold at 0.7 x VDD, which is
 
 - **Recommended: a 74AHCT125 level shifter.** It translates the 3.3 V output to
   proper 5 V logic. Wire GPIO 18 to 1A (pin 2), /1OE (pin 1) to GND, VCC
-  (pin 14) to 5 V, GND (pin 7) to GND, and 1Y (pin 3) through a 330 ohm
-  resistor to DIN.
+  (pin 14) to 5 V, GND (pin 7) to GND, and 1Y (pin 3) through a series
+  resistor of 300-500 ohm (470 is ideal, 220 works) to DIN.
 - **Alternative: a supply-side voltage drop.** One diode in series with the
   strip's **+5 V rail** (not the data line) lowers VDD to about 4.3 V and the
   threshold to about 3.0 V, bringing 3.3 V data inside spec. That diode carries
