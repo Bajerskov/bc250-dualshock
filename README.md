@@ -95,8 +95,17 @@ Many clone strips happen to work with 3.3 V data at VDD = 5 V on short runs.
 That is luck rather than design, and it is the first thing to suspect if
 colours are unstable or the first LED misbehaves.
 
-A 1000 uF capacitor across the strip's VCC/GND near the first LED is
-recommended for longer strips.
+A bulk capacitor across the strip's VCC/GND, mounted **at the first LED**, is
+recommended but not required. It absorbs the current steps the strip demands
+when content changes abruptly; without it the failure mode is flicker on bright
+transitions, never damage.
+
+1000 uF is the commonly quoted figure, but it assumes a weak supply and a long
+run. On a stiff source such as an ATX 5VSB rail, with a short supply run and
+`maxBrightness` holding the draw down, 100-220 uF is enough -- and several
+smaller capacitors in parallel work as well as one large one. Placement matters
+more than value: 100 uF at the first LED beats 1000 uF back at the supply.
+Starting with none is a reasonable bench shortcut; add one if you see flicker.
 
 ## Host side
 

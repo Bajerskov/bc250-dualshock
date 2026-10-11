@@ -41,7 +41,11 @@ Your strip is **24 LEDs**, which changes the power situation.
 - [ ] **External 5 V supply for the strip — not optional at 24 LEDs.** Full white
       on 24 is roughly 1.4 A, which the dev board's regulator cannot supply.
       Feed the strip directly and share ground with the ESP32.
-- [ ] Recommended: 1000 uF across strip VCC/GND near the first LED.
+- [ ] Optional: a bulk capacitor across strip VCC/GND **at the first LED**.
+      Not required, and its absence cannot damage anything. 100-220 uF is
+      enough on an ATX 5VSB rail with a short run; parallel several small ones
+      if that is what you have. Placement beats value. Skip it to start, and
+      add one only if you see flicker on bright transitions (see below).
 
 ## 24-LED specifics
 
