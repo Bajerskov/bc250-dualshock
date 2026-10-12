@@ -161,6 +161,11 @@ bool connectToWiFi() {
 
     if (WiFi.status() == WL_CONNECTED) {
         apMode = false;
+        // Disable modem sleep. The radio otherwise powers down periodically and
+        // drops inbound UDP, which shows up as a stuttering LED bar at 30 fps.
+        // The upstream steamos-led-bar project hit exactly this and fixed it
+        // the same way.
+        WiFi.setSleep(false);
         return true;
     } else {
         apMode = true;
