@@ -4,7 +4,7 @@
 # BC-250 REMOTE PSU POWER CONTROLLER
 ESP32 2-Channel 5V Relay Module-based device for remote control of the BC-250 atx power supply with web interface and PS5 controller support.
 
-<img width="909" height="541" alt="wires" src="https://github.com/user-attachments/assets/8f6ec507-48f0-44cf-aa08-43292f0b47fc" />
+![System wiring](docs/images/wiring.svg)
 
 Key Features
 
@@ -13,6 +13,37 @@ PS5 Controller Integration: Use DualSense controller to power on PC with PS butt
 WiFi Configuration: Web-based setup with network scanning
 MAC Address Locking: Restrict controller access to specific devices
 Over-the-Air Updates: Firmware updates via web interface
+
+# Hardware
+
+This build replaces the ready-made dual-relay module with a 23 x 18-hole
+protoboard: an ESP32 DevKit (30-pin) on socket strips, two SRD-05VDC-SL-C
+relays salvaged from a dead module, and the original 6-way and 3-way terminal
+blocks.
+
+![Protoboard layout](docs/images/protoboard.svg)
+
+| Part | Value |
+|---|---|
+| Relay drivers Q1, Q2 | S8050 NPN (E-B-C, flat face toward row 1) |
+| Base resistors R1, R2 | 1 kOhm |
+| Flyback diodes D1, D2 | 1N4007, band on the +5 V coil pin |
+| LED data resistor R3 | 470 Ohm |
+| Wire | 22 AWG solid core |
+
+| ESP32 pin | Connects to |
+|---|---|
+| GPIO 16 | Relay 1: COM to PSU PS_ON (green), NO to PSU ground |
+| GPIO 17 | Relay 2: COM to BC-250 power pin P, NO to TPMS1 pin 17 (GND) |
+| GPIO 4 | TPMS1 pin 9 (3 V) through 1 kOhm, PC-on sense |
+| GPIO 22 | Momentary power button to GND |
+| GPIO 23 | Button LED through 220 Ohm |
+| GPIO 18 | LED strip DIN through R3 |
+| GPIO 25 | SC8002B speaker amplifier S input (no firmware support yet) |
+
+The board runs from the PSU's 5 V standby rail on the 3-way terminal. The LED
+strip's + and - are wired straight to that terminal, so its current never
+passes through the DevKit.
 
 # Installation
 
