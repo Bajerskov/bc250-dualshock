@@ -13,6 +13,9 @@
 #include "pc_control.h"
 #include "led_bar.h"
 
+// 1 = click both relays and flash the LED bar at every boot.
+#define BOOT_SELF_TEST 0
+
 // Global variables
 WebServer server(80);
 
@@ -142,6 +145,7 @@ bool connectToWiFi() {
     loadWiFiConfig();
     
     if (!wifiConfigured || wifiSSID.length() == 0) {
+        Serial.println("WiFi: no saved network - starting AP");
         apMode = true;
         WiFi.mode(WIFI_AP);
         WiFi.softAP("BC-250-POWER-CONTROL", "");
@@ -149,23 +153,31 @@ bool connectToWiFi() {
     }
     
     WiFi.mode(WIFI_STA);
+    // DIAGNOSTIC: log link drops with the driver's reason code.
+    WiFi.onEvent([](WiFiEvent_t event, WiFiEventInfo_t info) {
+        Serial.printf("NET: disconnected, reason %d\n", info.wifi_sta_disconnected.reason);
+    }, ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
+    WiFi.onEvent([](WiFiEvent_t event, WiFiEventInfo_t info) {
+        Serial.println("NET: got IP " + WiFi.localIP().toString());
+    }, ARDUINO_EVENT_WIFI_STA_GOT_IP);
     String hostname = "bc250-" + String((uint32_t)ESP.getEfuseMac(), HEX);
     WiFi.setHostname(hostname.c_str());
     WiFi.begin(wifiSSID.c_str(), wifiPassword.c_str());
+    Serial.println("WiFi: joining '" + wifiSSID + "'");
 
+    // Association plus DHCP routinely takes 3-8 s, so allow 15 s before
+    // falling back to AP mode.
     int attempts = 0;
-    while (WiFi.status() != WL_CONNECTED && attempts < 20) {
+    while (WiFi.status() != WL_CONNECTED && attempts < 150) {
         delay(100);
         attempts++;
     }
+    Serial.printf("WiFi: status %d after %d ms\n", WiFi.status(), attempts * 100);
 
     if (WiFi.status() == WL_CONNECTED) {
         apMode = false;
-        // Disable modem sleep. The radio otherwise powers down periodically and
-        // drops inbound UDP, which shows up as a stuttering LED bar at 30 fps.
-        // The upstream steamos-led-bar project hit exactly this and fixed it
-        // the same way.
-        WiFi.setSleep(false);
+        // Modem sleep must stay enabled: the WiFi driver aborts if it is
+        // disabled while Bluetooth (Bluepad32) is running.
         return true;
     } else {
         apMode = true;
@@ -246,6 +258,29 @@ void loadPS5Config() {
 
 // ================ SETUP ================
 
+#if BOOT_SELF_TEST
+// TEMPORARY bench test for the relay protoboard: clicks each relay for 1 s,
+// then runs the LED bar's red/green/blue test pattern. Set BOOT_SELF_TEST to
+// 0 before connecting the relays to the PSU and the BC-250, or every boot
+// will pulse PS_ON and the power button.
+void runBootSelfTest() {
+    Serial.println("SELF TEST: relay 1 (OPTO_PIN, PS_ON) on for 1 s");
+    bool optoWas = digitalRead(OPTO_PIN);
+    digitalWrite(OPTO_PIN, HIGH);
+    delay(1000);
+    digitalWrite(OPTO_PIN, optoWas);
+    delay(500);
+
+    Serial.println("SELF TEST: relay 2 (EXTRA_PIN, power button) on for 1 s");
+    digitalWrite(EXTRA_PIN, HIGH);
+    delay(1000);
+    digitalWrite(EXTRA_PIN, LOW);
+
+    Serial.println("SELF TEST: LED bar red, green, blue");
+    ledBar.startTestPattern();
+}
+#endif
+
 void setup() {
     Serial.begin(115200);
     delay(1000);
@@ -303,9 +338,14 @@ void setup() {
 
     Serial.println("Setting up LED bar...");
     ledBar.begin();
-    
+
+#if BOOT_SELF_TEST
+    runBootSelfTest();
+#endif
+
     Serial.println("=== BC-250 READY ===\n");
 }
+
 
 void loop() {
     unsigned long now = millis();
@@ -387,6 +427,14 @@ void loop() {
         Serial.print(pcIsOn ? "ON" : "OFF");
         Serial.println();
         lastStatePrint = now;
+    }
+
+    // DIAGNOSTIC: shows whether the loop is alive and the link is up.
+    static unsigned long lastNetPrint = 0;
+    if (now - lastNetPrint >= 5000) {
+        Serial.printf("NET: status %d, rssi %d, heap %u, min heap %u\n",
+                      WiFi.status(), WiFi.RSSI(), ESP.getFreeHeap(), ESP.getMinFreeHeap());
+        lastNetPrint = now;
     }
 
     // ================ PIN READ ================

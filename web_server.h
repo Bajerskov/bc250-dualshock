@@ -144,7 +144,9 @@ void setupWebServer() {
     
     // Setup page
     server.on("/setup", []() {
+        Serial.printf("WEB: /setup start, heap %u\n", ESP.getFreeHeap());  // DIAGNOSTIC
         server.send(200, "text/html", setupHtml);
+        Serial.println("WEB: /setup sent");  // DIAGNOSTIC
     });
     
     // CSS styles
